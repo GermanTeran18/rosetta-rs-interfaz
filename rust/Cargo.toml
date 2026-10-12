@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["crates/rosetta-core", "crates/rosetta-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# Port derivado de Rosetta: hereda su licencia no comercial (ver ../LICENSE.md).
+license-file = "../LICENSE.md"
+publish = false

@@ -1,0 +1,14 @@
+[package]
+name = "rosetta-cli"
+description = "Línea de comandos delgada sobre rosetta-core."
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "rosetta-rs"
+path = "src/main.rs"
+
+[dependencies]
+rosetta-core = { path = "../rosetta-core" }

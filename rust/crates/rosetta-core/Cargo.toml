@@ -1,0 +1,9 @@
+[package]
+name = "rosetta-core"
+description = "Núcleo de Rosetta portado a Rust: tipos químicos, Pose y lectura/escritura de PDB."
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
