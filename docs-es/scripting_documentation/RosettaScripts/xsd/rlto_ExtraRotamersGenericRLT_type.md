@@ -1,0 +1,41 @@
+<!-- ESTE ES UN ARCHIVO GENERADO AUTOMÁTICAMENTE: no lo edites directamente; cambia la definición del esquema en el propio código. -->
+
+_Documentación de sintaxis de etiquetas generada automáticamente:_
+
+---
+Durante el empaquetado se pueden usar rotámeros extra para aumentar el muestreo. Usa esta TaskOperation para especificar de una vez, para todos los residuos, qué rotámeros extra se usan. Nota: extrachi_cutoff se usa para determinar cuántos vecinos debe tener un residuo antes de que se apliquen los rotámeros extra. Por ejemplo, si quieres aplicar rotámeros extra a todos los residuos, pon extrachi_cutoff=0.
+
+```xml
+<ExtraRotamersGenericRLT name="(&string;)" ex1="(0 &bool;)" ex2="(0 &bool;)"
+        ex3="(0 &bool;)" ex4="(0 &bool;)" ex1aro="(0 &bool;)"
+        ex2aro="(0 &bool;)" ex1aro_exposed="(0 &bool;)"
+        ex2aro_exposed="(0 &bool;)" ex1_sample_level="(1 &exchi_sample_level;)"
+        ex2_sample_level="(0 &exchi_sample_level;)"
+        ex3_sample_level="(1 &exchi_sample_level;)"
+        ex4_sample_level="(1 &exchi_sample_level;)"
+        ex1aro_sample_level="(1 &exchi_sample_level;)"
+        ex2aro_sample_level="(0 &exchi_sample_level;)"
+        ex1aro_exposed_sample_level="(1 &exchi_sample_level;)"
+        ex2aro_exposed_sample_level="(1 &exchi_sample_level;)"
+        extrachi_cutoff="(18 &non_negative_integer;)" />
+```
+
+-   **ex1**: Usa subrotámeros extra de chi1 para todos los residuos que superan extrachi_cutoff
+-   **ex2**: Usa subrotámeros extra de chi2 para todos los residuos que superan extrachi_cutoff
+-   **ex3**: Usa subrotámeros extra de chi3 para todos los residuos que superan extrachi_cutoff
+-   **ex4**: Usa subrotámeros extra de chi4 para todos los residuos que superan extrachi_cutoff
+-   **ex1aro**: Usa subrotámeros extra de chi1 para los residuos aromáticos que superan extrachi_cutoff
+-   **ex2aro**: Usa subrotámeros extra de chi2 para los residuos aromáticos que superan extrachi_cutoff
+-   **ex1aro_exposed**: Usa subrotámeros extra de chi1 para todos los residuos aromáticos
+-   **ex2aro_exposed**: Usa subrotámeros extra de chi2 para todos los residuos aromáticos
+-   **ex1_sample_level**: Nivel de muestreo de chi1; todos incluyen el diedro chi actual. Actualmente hay 8 opciones: NO_EXTRA_CHI_SAMPLES (0) (solo el original); EX_ONE_STDDEV (1) (por defecto, +- una desviación estándar, 3 muestras); EX_ONE_HALF_STEP_STDDEV (2)(+- 0.5 desviaciones estándar, 3 muestras); EX_TWO_FULL_STEP_STDDEVS(3) ( +- 1 y 2 desviaciones estándar, 5 muestras); EX_TWO_HALF_STEP_STDDEVS(4) ( +- 0.5 y +- 1 desviaciones estándar, 5 muestras); EX_FOUR_HALF_STEP_STDDEVS(5) ( +- 0.5, 1, 1.5, 2 desviaciones estándar, 9 muestras); EX_THREE_THIRD_STEP_STDDEVS (6) ( +- 0.33, 0.67, 1 desviaciones estándar; 7 muestras); EX_SIX_QUARTER_STEP_STDDEVS (7) ( += 0.25, 0.5, 0.75, 1.25, 1.5 desviaciones estándar; 13 muestras)
+-   **ex2_sample_level**: Nivel de muestreo de chi2; consulta ex1_sample_level para ver las opciones disponibles.
+-   **ex3_sample_level**: Nivel de muestreo de chi3; consulta ex1_sample_level para ver las opciones disponibles
+-   **ex4_sample_level**: Nivel de muestreo de chi4; consulta ex1_sample_level para ver las opciones disponibles
+-   **ex1aro_sample_level**: Nivel de muestreo de chi1 aromático; consulta ex1_sample_level para ver las opciones disponibles
+-   **ex2aro_sample_level**: Nivel de muestreo de chi2 aromático; consulta ex1_sample_level para ver las opciones disponibles
+-   **ex1aro_exposed_sample_level**: Nivel de muestreo de chi1 aromático; consulta ex1_sample_level para ver las opciones disponibles
+-   **ex2aro_exposed_sample_level**: Nivel de muestreo de chi1 aromático; consulta ex1_sample_level para ver las opciones disponibles
+-   **extrachi_cutoff**: Número de vecinos que debe tener un residuo antes de que se usen rotámeros extra. Por defecto es 18
+
+---
