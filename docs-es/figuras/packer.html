@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>El packer de Rosetta</title>
+<style>
+  :root {
+    --bg: #fafaf8; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #d9d9de; --faint: #c9c9cf;
+    --pick: #2563eb; --good: #16a34a; --bad: #dc2626; --try: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111113; --card: #1a1a1d; --ink: #ededf0; --muted: #9a9aa2; --line: #333338; --faint: #45454c;
+      --pick: #60a5fa; --good: #4ade80; --bad: #f87171; --try: #fbbf24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  svg { width: 100%; height: auto; display: block; }
+  .label { fill: var(--muted); font-size: 12px; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .big { fill: var(--ink); font-size: 13px; font-weight: 600; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  button { font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; min-height: 36px; }
+  button.primary { background: var(--pick); border-color: var(--pick); color: #fff; }
+  button:focus-visible { outline: 2px solid var(--pick); outline-offset: 2px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 14px; color: var(--muted); }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  ul.notes { margin: 16px 0 0; padding-left: 18px; color: var(--muted); }
+  ul.notes li { margin: 4px 0; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>El packer: elegir la cadena lateral de cada posición</h1>
+  <p class="sub">Cada posición puede poner su cadena lateral en unas pocas orientaciones fijas (rotámeros). El packer busca la combinación de menor energía.</p>
+
+  <div class="card">
+    <svg id="fig" viewBox="0 120 760 350" role="img" aria-label="Cinco posiciones de una cadena principal, cada una con cinco rotámeros posibles dibujados como palitos; el elegido está resaltado. Entre posiciones vecinas se muestra su energía de interacción, y abajo un gráfico de la energía total a lo largo del recocido."></svg>
+    <div class="controls">
+      <button id="pack" class="primary">Empaquetar (recocido)</button>
+      <button id="step">Un intento</button>
+      <button id="shuffle">Empezar al azar</button>
+    </div>
+    <div class="stats" aria-live="polite">
+      <span>Temperatura <b id="temp">—</b></span>
+      <span>Intentos <b id="tries">0</b></span>
+      <span>Energía actual <b id="cur"></b></span>
+      <span>Mínimo real <b id="min"></b></span>
+      <span>Combinaciones posibles <b>5⁵ = 3125</b></span>
+      <span id="gap"></span>
+    </div>
+  </div>
+
+  <ul class="notes">
+    <li>La energía total suma un término <b>por posición</b> (qué tan buena es esa orientación sola) y uno <b>por cada par de vecinas</b> (si sus cadenas chocan, en rojo, o se acomodan, en verde).</li>
+    <li>Rosetta calcula esas energías una vez, para todos los rotámeros y pares, y luego solo las suma. Cada intento cambia el rotámero de una posición al azar y se acepta con el mismo criterio de Metropolis que Monte Carlo.</li>
+    <li>La temperatura baja como en <code>SimAnnealerBase</code>: <code>T = (100 − 0.3)·e^(−salto) + 0.3</code>. Al principio acepta casi todo; al final solo mejora.</li>
+    <li>Aquí hay 3125 combinaciones y se pueden probar todas para saber el mínimo real. Una proteína de 100 posiciones con decenas de rotámeros cada una tiene más combinaciones que átomos en el universo: por eso se usa recocido y no fuerza bruta.</li>
+    <li>El recocido no garantiza el mínimo: corre <b>Empaquetar</b> varias veces y verás que a veces se queda cerca. Por eso Rosetta repite el empaquetado o lo combina con otros pasos.</li>
+    <li>Simplificación: 5 posiciones en un plano con 5 orientaciones cada una y energías de juguete. La idea es la misma.</li>
+  </ul>
+</main>
+
+<script>
+const N = 5, R = 5;
+const ANGLES = [-60, -30, 0, 30, 60].map((a) => (a * Math.PI) / 180);
+const X0 = 150, DX = 115, YB = 250, L = 72;
+// Energía propia de cada rotámero por posición (preferencias fijas, de juguete).
+const E1 = [
+  [1.5, -0.5, -2.0, 0.5, 2.0],
+  [0.5, -1.5, 0.0, -2.5, 1.0],
+  [-1.0, 0.5, -0.5, 1.5, -2.0],
+  [2.0, -2.5, 0.5, -1.0, 0.0],
+  [-0.5, 1.0, -1.5, -2.0, 0.5],
+];
+const tip = (i, r) => [X0 + DX * i + L * Math.sin(ANGLES[r]), YB - L * Math.cos(ANGLES[r])];
+// Par de vecinas: choque si las puntas quedan a menos de 26, acomodo entre 26 y 50.
+function pair(i, ri, rj) {
+  const [ax, ay] = tip(i, ri), [bx, by] = tip(i + 1, rj);
+  const d = Math.hypot(ax - bx, ay - by);
+  if (d < 26) return +(8 * (1 - d / 26) + 1).toFixed(2);
+  if (d < 50) return -1.5;
+  return 0;
+}
+const energy = (s) => {
+  let e = 0;
+  for (let i = 0; i < N; i++) e += E1[i][s[i]];
+  for (let i = 0; i < N - 1; i++) e += pair(i, s[i], s[i + 1]);
+  return e;
+};
+// Mínimo real por fuerza bruta: 5^5 combinaciones.
+let best = Infinity, bestState = null;
+for (let c = 0; c < R ** N; c++) {
+  const s = []; let x = c;
+  for (let i = 0; i < N; i++) { s.push(x % R); x = Math.floor(x / R); }
+  const e = energy(s);
+  if (e < best) { best = e; bestState = s; }
+}
+
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("fig");
+const el = (tag, attrs, parent = svg) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); parent.appendChild(n); return n; };
+const text = (x, y, s, cls, anchor = "middle") => { const t = el("text", { x, y, class: cls, "text-anchor": anchor }); t.textContent = s; return t; };
+
+// Cadena principal
+el("line", { x1: X0 - 50, x2: X0 + DX * (N - 1) + 50, y1: YB, y2: YB, stroke: "var(--muted)", "stroke-width": 4, "stroke-linecap": "round" });
+text(X0 - 50, YB + 64, "─ cadena principal", "label", "start");
+const sticks = [], pairTexts = [], e1Texts = [];
+for (let i = 0; i < N; i++) {
+  const x = X0 + DX * i;
+  const group = [];
+  for (let r = 0; r < R; r++) {
+    const [tx, ty] = tip(i, r);
+    const line = el("line", { x1: x, y1: YB, x2: tx, y2: ty, stroke: "var(--faint)", "stroke-width": 2, "stroke-linecap": "round" });
+    const dot = el("circle", { cx: tx, cy: ty, r: 4, fill: "var(--faint)" });
+    group.push({ line, dot });
+  }
+  sticks.push(group);
+  el("circle", { cx: x, cy: YB, r: 8, fill: "var(--card)", stroke: "var(--muted)", "stroke-width": 2 });
+  text(x, YB + 26, "posición " + (i + 1), "label");
+  e1Texts.push(text(x, YB + 42, "", "label mono"));
+}
+for (let i = 0; i < N - 1; i++) pairTexts.push(text(X0 + DX * i + DX / 2, YB - 92, "", "big mono"));
+text(380, YB - 112, "energía entre vecinas", "label");
+
+// Gráfico de energía
+const GX = 70, GY = 330, GW = 640, GH = 110;
+el("rect", { x: GX, y: GY, width: GW, height: GH, fill: "none", stroke: "var(--line)", rx: 6 });
+text(GX - 8, GY + 12, "energía", "label", "end");
+text(GX + GW / 2, GY + GH + 20, "intentos durante el recocido", "label");
+const lo = best - 2, hi = 25;
+const gy = (e) => GY + GH - ((Math.min(hi, Math.max(lo, e)) - lo) / (hi - lo)) * GH;
+el("line", { x1: GX, x2: GX + GW, y1: gy(best), y2: gy(best), stroke: "var(--good)", "stroke-dasharray": "4 4" });
+text(GX + GW - 6, gy(best) - 5, "mínimo real " + best.toFixed(1), "label", "end");
+const trace = el("polyline", { points: "", fill: "none", stroke: "var(--pick)", "stroke-width": 1.6 });
+
+let state = [0, 4, 0, 4, 0];
+let history = [], tries = 0, timer = null, temp = null;
+const $ = (id) => document.getElementById(id);
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function draw(trial) {
+  for (let i = 0; i < N; i++) {
+    sticks[i].forEach((s, r) => {
+      const chosen = state[i] === r, tried = trial && trial.i === i && trial.r === r && !chosen;
+      const color = chosen ? "var(--pick)" : tried ? "var(--try)" : "var(--faint)";
+      s.line.setAttribute("stroke", color); s.dot.setAttribute("fill", color);
+      s.line.setAttribute("stroke-width", chosen ? 4 : tried ? 3 : 2);
+      s.line.setAttribute("stroke-dasharray", tried ? "4 3" : "none");
+    });
+    e1Texts[i].textContent = "propia " + (E1[i][state[i]] > 0 ? "+" : "") + E1[i][state[i]].toFixed(1);
+  }
+  for (let i = 0; i < N - 1; i++) {
+    const e = pair(i, state[i], state[i + 1]);
+    pairTexts[i].textContent = (e > 0 ? "+" : "") + e.toFixed(1);
+    pairTexts[i].style.fill = e > 0 ? "var(--bad)" : e < 0 ? "var(--good)" : "var(--muted)";
+  }
+  const e = energy(state);
+  $("cur").textContent = e.toFixed(1);
+  $("min").textContent = best.toFixed(1);
+  $("tries").textContent = tries;
+  $("temp").textContent = temp === null ? "—" : temp.toFixed(1);
+  const n = Math.max(history.length, 140);
+  trace.setAttribute("points", history.map((h, k) => `${GX + (k / (n - 1)) * GW},${gy(h)}`).join(" "));
+}
+
+function attempt() {
+  const i = Math.floor(Math.random() * N);
+  let r = Math.floor(Math.random() * (R - 1));
+  if (r >= state[i]) r++;
+  const next = state.slice(); next[i] = r;
+  const dE = energy(next) - energy(state);
+  const t = temp ?? 1;
+  const accept = dE < 0 || Math.random() < Math.exp(-dE / t);
+  draw({ i, r });
+  if (accept) state = next;
+  tries++;
+  history.push(energy(state));
+}
+
+function stop() { clearInterval(timer); timer = null; $("pack").textContent = "Empaquetar (recocido)"; }
+function pack() {
+  if (timer) { stop(); return; }
+  history = [energy(state)]; tries = 0; $("gap").textContent = "";
+  const JUMPS = 7, INNER = 20;
+  let jump = 0, inner = 0;
+  temp = 100;
+  $("pack").textContent = "Detener";
+  timer = setInterval(() => {
+    temp = (100 - 0.3) * Math.exp(-jump) + 0.3;
+    attempt();
+    setTimeout(() => draw(), still ? 0 : 90);
+    if (++inner >= INNER) { inner = 0; jump++; }
+    if (jump >= JUMPS) {
+      stop(); draw();
+      const gap = energy(state) - best;
+      $("gap").textContent = gap < 1e-9 ? "Llegó al mínimo real." : "Quedó a " + gap.toFixed(1) + " del mínimo real: el recocido no siempre lo encuentra.";
+    }
+  }, still ? 10 : 130);
+}
+
+$("pack").addEventListener("click", pack);
+$("step").addEventListener("click", () => { stop(); if (temp === null) temp = 1; attempt(); setTimeout(() => draw(), still ? 0 : 400); });
+$("shuffle").addEventListener("click", () => { stop(); state = state.map(() => Math.floor(Math.random() * R)); history = []; tries = 0; temp = null; draw(); });
+draw();
+</script>
+</body>
+</html>

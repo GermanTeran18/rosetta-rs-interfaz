@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Función de puntuación de Rosetta</title>
+<style>
+  :root {
+    --bg: #fafaf8; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #d9d9de;
+    --good: #16a34a; --bad: #dc2626; --accent: #2563eb; --total: #1d1d1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111113; --card: #1a1a1d; --ink: #ededf0; --muted: #9a9aa2; --line: #333338;
+      --good: #4ade80; --bad: #f87171; --accent: #60a5fa; --total: #ededf0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .formula { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; margin: 0 0 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .formula b { color: var(--ink); }
+  svg { width: 100%; height: auto; display: block; }
+  .name { fill: var(--ink); font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
+  .calc { fill: var(--muted); font: 12px ui-monospace, "SF Mono", Menlo, monospace; }
+  .axis { stroke: var(--line); }
+  .zero { stroke: var(--muted); stroke-width: 1; }
+  .side { fill: var(--muted); font-size: 12px; }
+  .controls { margin-top: 14px; }
+  .controls p { margin: 0 0 8px; font-size: 14px; }
+  .ramp { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: 13px ui-monospace, "SF Mono", Menlo, monospace; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; min-height: 36px; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ul.notes { margin: 16px 0 0; padding-left: 18px; color: var(--muted); }
+  ul.notes li { margin: 4px 0; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Función de puntuación: una suma con pesos</h1>
+  <p class="sub">Rosetta puntúa una estructura sumando términos de energía, cada uno multiplicado por su peso. Más negativo es mejor.</p>
+
+  <div class="card">
+    <p class="formula"><b>total</b> = Σ peso<sub>i</sub> × energía<sub>i</sub> = <b id="total"></b></p>
+    <svg id="fig" viewBox="0 0 760 330" role="img" aria-label="Barras horizontales por término de energía: a la izquierda los que favorecen la estructura, a la derecha los que la penalizan, y abajo la suma total."></svg>
+    <div class="controls">
+      <p>Peso de <code>fa_rep</code> en las rampas de FastRelax (<code>MonomerRelax2019</code>): 0.55 × factor</p>
+      <div class="ramp" id="ramp" role="group" aria-label="Factor de fa_rep"></div>
+    </div>
+  </div>
+
+  <ul class="notes">
+    <li>Cada barra es <b>peso × energía</b> de un término. Verde: favorece la estructura (resta). Rojo: la penaliza (suma).</li>
+    <li><code>fa_atr</code> premia que los átomos estén cerca; <code>fa_rep</code> castiga que choquen; <code>fa_sol</code> cuesta enterrar grupos polares; <code>fa_elec</code> y <code>hbond</code> premian cargas opuestas y puentes de hidrógeno; <code>fa_dun</code> castiga cadenas laterales en conformaciones raras.</li>
+    <li>Los pesos son los de <code>ref2015</code> (<code>database/scoring/weights/ref2015.wts</code>). Las energías son de ejemplo, del orden de una proteína de 76 residuos; <code>hbond</code> agrupa los cuatro términos de puentes de hidrógeno y se omiten términos pequeños.</li>
+    <li>FastRelax empieza con <code>fa_rep</code> muy bajo para que los átomos puedan atravesarse y reacomodarse, y lo sube por etapas hasta el peso completo. Aquí la estructura queda fija; en un relax real también cambia en cada etapa.</li>
+  </ul>
+</main>
+
+<script>
+const TERMS = [
+  { name: "fa_atr", weight: 1.0, energy: -430 },
+  { name: "fa_rep", weight: 0.55, energy: 91, ramp: true },
+  { name: "fa_sol", weight: 1.0, energy: 260 },
+  { name: "fa_elec", weight: 1.0, energy: -130 },
+  { name: "hbond", weight: 1.0, energy: -110 },
+  { name: "fa_dun", weight: 0.7, energy: 140 },
+];
+const RAMP = [0.040, 0.051, 0.265, 0.280, 0.559, 0.581, 1];
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("fig");
+const ZX = 480, KX = 0.5, ROW = 40, TOP = 34;
+const el = (tag, attrs, parent = svg) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); parent.appendChild(n); return n; };
+const text = (x, y, s, cls, anchor = "start") => { const t = el("text", { x, y, class: cls, "text-anchor": anchor }); t.textContent = s; return t; };
+const fmt = (v) => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1);
+
+text(ZX - 12, 18, "← favorece", "side", "end");
+text(ZX + 12, 18, "penaliza →", "side");
+const rows = TERMS.map((t, i) => {
+  const y = TOP + i * ROW;
+  text(16, y + 18, t.name, "name");
+  const calc = text(110, y + 18, "", "calc");
+  const bar = el("rect", { x: ZX, y: y + 6, width: 0, height: 18, rx: 3 });
+  const val = text(0, y + 19, "", "calc");
+  return { t, calc, bar, val };
+});
+const ty = TOP + TERMS.length * ROW + 14;
+el("line", { x1: 16, x2: 744, y1: ty - 4, y2: ty - 4, class: "axis" });
+text(16, ty + 22, "total", "name");
+const tBar = el("rect", { x: ZX, y: ty + 6, width: 0, height: 24, rx: 3, fill: "var(--total)" });
+const tVal = text(0, ty + 23, "", "calc");
+el("line", { x1: ZX, x2: ZX, y1: 26, y2: ty + 36, class: "zero" });
+
+let factor = 1;
+function draw() {
+  let total = 0;
+  for (const r of rows) {
+    const w = r.t.ramp ? r.t.weight * factor : r.t.weight;
+    const c = w * r.t.energy;
+    total += c;
+    r.calc.textContent = w.toFixed(3).replace(/0+$/, "").replace(/\.$/, "") + " × " + String(r.t.energy).replace("-", "−") + " =";
+    const len = Math.abs(c) * KX;
+    r.bar.setAttribute("x", c < 0 ? ZX - len : ZX);
+    r.bar.setAttribute("width", len);
+    r.bar.setAttribute("fill", c < 0 ? "var(--good)" : "var(--bad)");
+    r.val.textContent = fmt(c);
+    r.val.setAttribute("x", c < 0 ? ZX - len - 6 : ZX + len + 6);
+    r.val.setAttribute("text-anchor", c < 0 ? "end" : "start");
+  }
+  const len = Math.abs(total) * KX;
+  tBar.setAttribute("x", total < 0 ? ZX - len : ZX);
+  tBar.setAttribute("width", len);
+  tVal.textContent = fmt(total);
+  tVal.setAttribute("x", total < 0 ? ZX - len - 6 : ZX + len + 6);
+  tVal.setAttribute("text-anchor", total < 0 ? "end" : "start");
+  document.getElementById("total").textContent = fmt(total);
+}
+
+const ramp = document.getElementById("ramp");
+const buttons = RAMP.map((f) => {
+  const b = document.createElement("button");
+  b.textContent = "× " + f;
+  b.setAttribute("aria-pressed", f === factor);
+  b.addEventListener("click", () => { factor = f; buttons.forEach((x, i) => x.setAttribute("aria-pressed", RAMP[i] === f)); draw(); });
+  ramp.appendChild(b);
+  return b;
+});
+draw();
+</script>
+</body>
+</html>
