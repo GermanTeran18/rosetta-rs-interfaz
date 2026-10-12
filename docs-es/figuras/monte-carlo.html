@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monte Carlo en Rosetta</title>
+<style>
+  :root {
+    --bg: #fafaf8; --card: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #d9d9de;
+    --curve: #8a8a92; --now: #2563eb; --ok: #16a34a; --no: #dc2626; --best: #b45309; --fill: #eef2ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111113; --card: #1a1a1d; --ink: #ededf0; --muted: #9a9aa2; --line: #333338;
+      --curve: #8a8a92; --now: #60a5fa; --ok: #4ade80; --no: #f87171; --best: #fbbf24; --fill: #1e2a44; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  svg { width: 100%; height: auto; display: block; }
+  .axis { stroke: var(--line); stroke-width: 1; }
+  .curve { fill: none; stroke: var(--curve); stroke-width: 2; }
+  .state { fill: var(--card); stroke: var(--curve); stroke-width: 1.5; }
+  .label { fill: var(--muted); font-size: 12px; }
+  .big { fill: var(--ink); font-size: 13px; font-weight: 600; }
+  .ball { fill: var(--now); }
+  .ghost { fill: none; stroke: var(--now); stroke-width: 2; stroke-dasharray: 4 3; }
+  .arrow { fill: none; stroke: var(--now); stroke-width: 1.6; stroke-dasharray: 5 4; }
+  .bestmark { fill: var(--best); }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-top: 14px; }
+  .controls label { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+  input[type=range] { width: 200px; accent-color: var(--now); }
+  button { font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; min-height: 36px; }
+  button.primary { background: var(--now); border-color: var(--now); color: #fff; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--now); outline-offset: 2px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 14px; color: var(--muted); }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .verdict-ok { color: var(--ok); font-weight: 600; }
+  .verdict-no { color: var(--no); font-weight: 600; }
+  ul.notes { margin: 16px 0 0; padding-left: 18px; color: var(--muted); }
+  ul.notes li { margin: 4px 0; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Monte Carlo: cómo decide Rosetta si acepta un cambio</h1>
+  <p class="sub">Cada punto es una conformación posible y su altura es su energía. Más abajo es mejor.</p>
+
+  <div class="card">
+    <svg id="fig" viewBox="0 0 760 400" role="img" aria-label="Paisaje de energía con nueve estados, una bola en el estado actual y una barra que compara la probabilidad de aceptar con un número al azar."></svg>
+
+    <div class="controls">
+      <label for="temp">Temperatura kT <input id="temp" type="range" min="0" max="100" value="62"> <b id="tempv">2.4</b></label>
+      <button id="step" class="primary">Un paso</button>
+      <button id="run">Correr</button>
+      <button id="anneal">Recocido (enfriar)</button>
+      <button id="reset">Reiniciar</button>
+    </div>
+    <div class="stats" aria-live="polite">
+      <span>Pasos <b id="steps">0</b></span>
+      <span>Aceptados <b id="acc">0</b></span>
+      <span>Energía actual <b id="cur">24</b></span>
+      <span>Mejor vista <b id="best">24</b></span>
+      <span id="verdict"></span>
+    </div>
+  </div>
+
+  <ul class="notes">
+    <li>Cada paso propone moverse a un estado vecino. Si la energía <b>baja</b>, se acepta siempre.</li>
+    <li>Si <b>sube</b> en ΔE, se acepta con probabilidad <code>p = e^(−ΔE/kT)</code>: se saca un número al azar <code>u</code> entre 0 y 1 y se acepta si <code>u &lt; p</code>.</li>
+    <li>Con kT alto casi todo se acepta y la búsqueda explora. Con kT bajo solo baja, y puede quedarse atrapada en un valle que no es el más profundo.</li>
+    <li>Rosetta guarda el mejor estado visto y lo recupera al final (<code>recover_low</code>). Es la misma regla de <code>MonteCarlo::boltzmann</code> en <code>protocols/moves/MonteCarlo.cc</code>.</li>
+    <li>Simplificación: aquí hay 9 estados en fila. Una proteína real tiene un número astronómico de conformaciones en muchas dimensiones.</li>
+  </ul>
+</main>
+
+<script>
+const E = [24, 14, 20, 9, 17, 28, 19, 4, 15];
+const T_MIN = 0.2, T_MAX = 6;
+const svg = document.getElementById("fig");
+const NS = "http://www.w3.org/2000/svg";
+const X0 = 60, DX = 64, Y0 = 300, KY = 8; // eje: x de cada estado, y = Y0 − KY·E
+const xs = (i) => X0 + DX * i;
+const ys = (e) => Y0 - KY * e;
+const el = (tag, attrs, parent = svg) => {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  parent.appendChild(n);
+  return n;
+};
+const text = (x, y, s, cls, anchor = "middle") => { const t = el("text", { x, y, class: cls, "text-anchor": anchor }); t.textContent = s; return t; };
+
+// Ejes
+el("line", { x1: 40, y1: 330, x2: 620, y2: 330, class: "axis" });
+el("line", { x1: 40, y1: 330, x2: 40, y2: 40, class: "axis" });
+text(330, 356, "conformaciones (estados)", "label");
+const yl = text(24, 190, "energía", "label");
+yl.setAttribute("transform", "rotate(-90 24 190)");
+
+// Curva suave por los estados (Catmull-Rom)
+const pts = E.map((e, i) => [xs(i), ys(e)]);
+let d = `M${pts[0][0]} ${pts[0][1]}`;
+for (let i = 0; i < pts.length - 1; i++) {
+  const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+  d += ` C${p1[0] + (p2[0] - p0[0]) / 6} ${p1[1] + (p2[1] - p0[1]) / 6} ${p2[0] - (p3[0] - p1[0]) / 6} ${p2[1] - (p3[1] - p1[1]) / 6} ${p2[0]} ${p2[1]}`;
+}
+el("path", { d, class: "curve" });
+E.forEach((e, i) => {
+  el("circle", { cx: xs(i), cy: ys(e), r: 5, class: "state" });
+  text(xs(i), 322, String(i + 1), "label");
+  text(xs(i), ys(e) + 20, "E " + e, "label");
+});
+
+// Punta de flecha para la propuesta
+const defs = el("defs", {});
+const mk = el("marker", { id: "head", viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
+el("path", { d: "M0 0 L10 5 L0 10 z", fill: "var(--now)" }, mk);
+
+// Marcador del mejor estado, propuesta y bola
+const bestMark = el("path", { d: "", class: "bestmark" });
+const bestText = text(0, 0, "mejor", "label");
+const arrow = el("path", { d: "", class: "arrow", "marker-end": "url(#head)" });
+const ghost = el("circle", { cx: 0, cy: 0, r: 9, class: "ghost", opacity: 0 });
+const dEText = text(0, 0, "", "big");
+const ball = el("circle", { cx: xs(0), cy: ys(E[0]) - 11, r: 9, class: "ball" });
+
+// Barra de aceptación
+const BX = 650, BY = 60, BW = 34, BH = 240;
+text(BX + BW / 2, 30, "probabilidad", "label");
+text(BX + BW / 2, 44, "de aceptar", "label");
+el("rect", { x: BX, y: BY, width: BW, height: BH, rx: 6, fill: "none", stroke: "var(--line)" });
+const fill = el("rect", { x: BX, y: BY + BH, width: BW, height: 0, rx: 6, fill: "var(--fill)", stroke: "var(--now)", "stroke-width": 1 });
+text(BX - 8, BY + 4, "1", "label", "end");
+text(BX - 8, BY + BH + 4, "0", "label", "end");
+const pText = text(BX + BW / 2, BY + BH + 24, "", "big");
+const uLine = el("line", { x1: BX - 10, x2: BX + BW + 10, y1: 0, y2: 0, stroke: "var(--ink)", "stroke-width": 2, opacity: 0 });
+const uText = text(BX + BW + 14, 0, "", "label", "start");
+
+// Estado
+let state = 0, best = 0, steps = 0, acc = 0, temp = 2.4, running = null, annealing = false;
+const $ = (id) => document.getElementById(id);
+const tempFromSlider = (v) => T_MIN * Math.pow(T_MAX / T_MIN, v / 100);
+const sliderFromTemp = (t) => Math.round((100 * Math.log(t / T_MIN)) / Math.log(T_MAX / T_MIN));
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function drawState() {
+  ball.setAttribute("cx", xs(state));
+  ball.setAttribute("cy", ys(E[state]) - 11);
+  const bx = xs(best), by = ys(E[best]) + 34;
+  bestMark.setAttribute("d", `M${bx} ${by - 8} l6 9 h-12 z`);
+  bestText.setAttribute("x", bx); bestText.setAttribute("y", by + 14);
+  $("cur").textContent = E[state];
+  $("best").textContent = E[best];
+  $("steps").textContent = steps;
+  $("acc").textContent = acc;
+  $("tempv").textContent = temp.toFixed(1);
+}
+
+function animate(from, to, ms, fn) {
+  return new Promise((done) => {
+    if (still || ms === 0) { fn(1); done(); return; }
+    const t0 = performance.now();
+    const frame = (now) => {
+      const t = Math.min(1, (now - t0) / ms);
+      fn(1 - Math.pow(1 - t, 3));
+      t < 1 ? requestAnimationFrame(frame) : done();
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+let busy = false;
+async function step(fast = false) {
+  if (busy) return;
+  busy = true;
+  const dir = state === 0 ? 1 : state === E.length - 1 ? -1 : Math.random() < 0.5 ? -1 : 1;
+  const to = state + dir;
+  const dE = E[to] - E[state];
+  const p = Math.min(1, Math.exp(Math.max(-40, Math.min(40, -dE / temp))));
+  const u = Math.random();
+  const accept = u < p;
+  const ms = fast ? 0 : 1;
+
+  // Propuesta
+  const x1 = xs(state), y1 = ys(E[state]) - 22, x2 = xs(to), y2 = ys(E[to]) - 22;
+  const mx = (x1 + x2) / 2, my = Math.min(y1, y2) - 26;
+  arrow.setAttribute("d", `M${x1} ${y1} Q${mx} ${my} ${x2} ${y2}`);
+  ghost.setAttribute("cx", x2); ghost.setAttribute("cy", ys(E[to]) - 11); ghost.setAttribute("opacity", 1);
+  dEText.setAttribute("x", mx); dEText.setAttribute("y", my - 2);
+  dEText.textContent = "ΔE " + (dE > 0 ? "+" : dE < 0 ? "−" : "") + Math.abs(dE);
+
+  // Barra: p y luego u
+  pText.textContent = "p = " + (p >= 1 ? "1" : p.toFixed(2));
+  uLine.setAttribute("opacity", 0); uText.textContent = "";
+  await animate(0, 1, 350 * ms, (t) => { const h = BH * p * t; fill.setAttribute("y", BY + BH - h); fill.setAttribute("height", h); });
+  const uy = BY + BH - BH * u;
+  uLine.setAttribute("y1", uy); uLine.setAttribute("y2", uy); uLine.setAttribute("opacity", 1);
+  uText.setAttribute("y", uy + 4); uText.textContent = "u = " + u.toFixed(2);
+  await animate(0, 1, 450 * ms, () => {});
+
+  steps++;
+  const v = $("verdict");
+  if (accept) {
+    acc++;
+    v.className = "verdict-ok";
+    v.textContent = dE <= 0 ? "Aceptado: la energía baja" : "Aceptado: u < p";
+    const from = state;
+    await animate(0, 1, 380 * ms, (t) => {
+      const x = xs(from) + (xs(to) - xs(from)) * t;
+      const y = (ys(E[from]) - 11) + ((ys(E[to]) - 11) - (ys(E[from]) - 11)) * t - Math.sin(Math.PI * t) * 30;
+      ball.setAttribute("cx", x); ball.setAttribute("cy", y);
+    });
+    state = to;
+    if (E[state] < E[best]) best = state;
+  } else {
+    v.className = "verdict-no";
+    v.textContent = "Rechazado: u ≥ p, se queda donde estaba";
+    await animate(0, 1, 300 * ms, () => {});
+  }
+  ghost.setAttribute("opacity", 0);
+  drawState();
+  busy = false;
+}
+
+function stop() { if (running) { clearInterval(running); running = null; } annealing = false; $("run").textContent = "Correr"; }
+function start(isAnneal) {
+  stop();
+  annealing = isAnneal;
+  if (isAnneal) { temp = T_MAX; $("temp").value = sliderFromTemp(temp); best = state; }
+  $("run").textContent = "Detener";
+  const interval = still ? 150 : 1300;
+  running = setInterval(async () => {
+    if (annealing) {
+      temp = Math.max(T_MIN, temp * 0.9);
+      $("temp").value = sliderFromTemp(temp);
+      if (temp <= T_MIN + 1e-9) { await step(still); drawState(); stop(); return; }
+    }
+    step(still);
+  }, interval);
+  step(still);
+}
+
+$("temp").addEventListener("input", (e) => { temp = tempFromSlider(+e.target.value); drawState(); });
+$("step").addEventListener("click", () => { stop(); step(); });
+$("run").addEventListener("click", () => (running ? stop() : start(false)));
+$("anneal").addEventListener("click", () => start(true));
+$("reset").addEventListener("click", () => { stop(); state = 0; best = 0; steps = 0; acc = 0; $("verdict").textContent = ""; fill.setAttribute("height", 0); pText.textContent = ""; uLine.setAttribute("opacity", 0); uText.textContent = ""; arrow.setAttribute("d", ""); dEText.textContent = ""; drawState(); });
+drawState();
+</script>
+</body>
+</html>

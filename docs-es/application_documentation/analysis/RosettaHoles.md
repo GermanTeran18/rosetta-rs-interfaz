@@ -1,0 +1,82 @@
+**Compilar RosettaHoles en mac:**
+
+CPU=macgcc
+NAMEFUL1=$(DIR)/$(NAME1).$(CPU)
+FC = /usr/local/bin/gfortran-4.9
+FFLAGS = -c -O3 -x f77-cpp-input -fsecond-underscore
+CC = /usr/local/bin/gcc-4.9
+LD = /usr/local/bin/gcc-4.9
+CFLAGS = -c -O3
+LDFLAGS = -O3
+LIBRARIES= -lgmp  -lm -lgfortran
+INCS= -I/usr/local/include
+LIBS= -L/usr/local/lib
+
+
+**Línea de comandos**
+
+**Visualización en PyMOL** 
+
+from pymol import cmd
+
+def useRosettaRadii():
+	cmd.alter("element C", "vdw=2.00")
+	cmd.alter("element N", "vdw=1.75")
+	cmd.alter("element O", "vdw=1.55")
+	cmd.alter("element H", "vdw=1.00")
+	cmd.alter("element P", "vdw=2.15")
+	cmd.alter("element S", "vdw=1.90")
+	cmd.alter("element RE", "vdw=1.40")
+	cmd.alter("element CU", "vdw=1.40")
+	cmd.set("sphere_scale", 1.0)
+	
+def expandRadii(delta=1.0, sel='all'):
+	for a in cmd.get_model(sel).atom:	
+		r = float(a.vdw) + float(delta)
+		cmd.alter("index "+`a.index`,'vdw='+`r`)
+	cmd.rebuild(sel,"spheres")
+
+def contractRadii(delta=1.0, sel='all'):
+	for a in cmd.get_model(sel).atom:	
+		r = float(a.vdw) - float(delta)
+		cmd.alter("index "+`a.index`,'vdw='+`r`)
+	cmd.rebuild(sel,"spheres")
+
+def useTempRadii(sel="all"):
+	for ii in range(30):
+		radius = "%0.1f"%(float(ii+1)/10)
+		cmd.alter(sel+" and b="+radius,"vdw="+radius)
+	cmd.rebuild()
+
+
+def showpacking(sel="all"):
+	useRosettaRadii()
+	useTempRadii(sel+" and resn CAV")
+	cmd.hide('everything', sel+" and resn CAV" )
+	cmd.show('spheres', sel+" and resn CAV" )
+
+
+cmd.extend('useRosettaRadii', useRosettaRadii)
+cmd.extend('expandRadii',expandRadii)
+cmd.extend('contractRadii',contractRadii)
+cmd.extend("useTempRadii",useTempRadii)
+cmd.extend("showpacking",showpacking)
+
+
+**Imagen representativa**
+
+
+**Consejos útiles**
+* promedia la puntuación por residuo
+*etc
+
+
+##Véase también
+
+* [[Aplicaciones de análisis | analysis-applications]]: otras aplicaciones de diseño
+* [[Escaneo de mutaciones puntuales| pmut-scan-parallel ]]: detección en paralelo de mutaciones puntuales estabilizadoras mediante diseño
+* [[Application Documentation]]: página principal de la documentación de aplicaciones
+* [[Running Rosetta with options]]: instrucciones para ejecutar los ejecutables de Rosetta.
+* [[Analyzing Results]]: consejos para analizar los resultados generados con Rosetta
+* [[Rosetta on different scales]]: pautas para escalar tus ejecuciones de Rosetta
+
